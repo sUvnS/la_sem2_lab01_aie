@@ -18,7 +18,36 @@ def left_canonicalize(tt: TTTensor, backend: BackendInterface) -> TTTensor:
         tt:      исходный тензор
         backend: интерфейс backend
     """
-    pass
+    cores = [core.copy() for core in tt.cores]
+
+    for k in range(tt.order - 1):
+        core = cores[k]
+        r_left, n, r_right = core.shape
+
+        matrix = backend.reshape(core, (r_left * n, r_right))
+        Q, R = backend.qr(matrix)
+
+        new_rank = Q.shape[1]
+        cores[k] = backend.reshape(Q, (r_left, n, new_rank))
+
+        next_core = cores[k + 1]
+        _, next_n, next_r = next_core.shape
+
+        new_next_core = backend.zeros((new_rank, next_n, next_r))
+
+        for a in range(new_rank):
+            for i in range(next_n):
+                for b in range(next_r):
+                    value = 0.0
+
+                    for c in range(r_right):
+                        value += R[(a, c)] * next_core[(c, i, b)]
+
+                    new_next_core[(a, i, b)] = value
+
+        cores[k + 1] = new_next_core
+
+    return TTTensor(cores)
 
 
 def right_canonicalize(tt: TTTensor, backend: BackendInterface) -> TTTensor:
@@ -29,7 +58,44 @@ def right_canonicalize(tt: TTTensor, backend: BackendInterface) -> TTTensor:
         tt:      исходный тензор
         backend: интерфейс backend
     """
-    pass
+    cores = [core.copy() for core in tt.cores]
+
+    for k in range(tt.order - 1, 0, -1):
+        core = cores[k]
+        r_left, n, r_right = core.shape
+
+        matrix = backend.reshape(core, (r_left, n * r_right))
+
+        U, S, Vt = backend.svd(matrix, full_matrices=False)
+
+        rank = _numerical_rank(S)
+
+        U_trunc = _truncate_columns(U, rank, backend)
+        S_trunc = _truncate_vector(S, rank, backend)
+        Vt_trunc = _truncate_rows(Vt, rank, backend)
+
+        cores[k] = backend.reshape(Vt_trunc, (rank, n, r_right))
+
+        left_part = _multiply_columns_by_diag(U_trunc, S_trunc, backend)
+
+        prev_core = cores[k - 1]
+        prev_r_left, prev_n, _ = prev_core.shape
+
+        new_prev_core = backend.zeros((prev_r_left, prev_n, rank))
+
+        for a in range(prev_r_left):
+            for i in range(prev_n):
+                for b in range(rank):
+                    value = 0.0
+
+                    for c in range(r_left):
+                        value += prev_core[(a, i, c)] * left_part[(c, b)]
+
+                    new_prev_core[(a, i, b)] = value
+
+        cores[k - 1] = new_prev_core
+
+    return TTTensor(cores)
 
 
 # ════════════════════════════════════════════════
@@ -53,7 +119,24 @@ def _numerical_rank(
         rel_tol: относительный допуск (по умолчанию 1e-8)
         abs_tol: абсолютный допуск (по умолчанию 1e-12)
     """
-    pass
+    if S.ndim != 1:
+        raise ValueError("S must be vector")
+
+    if S.shape[0] == 0:
+        return 0
+
+    max_s = 0.0
+    for i in range(S.shape[0]):
+        max_s = max(max_s, abs(S[i]))
+
+    border = max(abs_tol, rel_tol * max_s)
+
+    rank = 0
+    for i in range(S.shape[0]):
+        if abs(S[i]) > border:
+            rank += 1
+
+    return max(1, rank)
 
 
 def _truncate_columns(
@@ -72,7 +155,21 @@ def _truncate_columns(
         rank:    число сохраняемых столбцов
         backend: интерфейс backend
     """
-    pass
+    if matrix.ndim != 2:
+        raise ValueError("matrix must be 2-dimensional")
+
+    rows, cols = matrix.shape
+
+    if rank < 1 or rank > cols:
+        raise ValueError("wrong rank")
+
+    result = backend.zeros((rows, rank))
+
+    for i in range(rows):
+        for j in range(rank):
+            result[(i, j)] = matrix[(i, j)]
+
+    return result
 
 
 def _truncate_rows(
@@ -88,7 +185,21 @@ def _truncate_rows(
         rank:    число сохраняемых строк
         backend: интерфейс backend
     """
-    pass
+    if matrix.ndim != 2:
+        raise ValueError("matrix must be 2-dimensional")
+
+    rows, cols = matrix.shape
+
+    if rank < 1 or rank > rows:
+        raise ValueError("wrong rank")
+
+    result = backend.zeros((rank, cols))
+
+    for i in range(rank):
+        for j in range(cols):
+            result[(i, j)] = matrix[(i, j)]
+
+    return result
 
 
 def _truncate_vector(
@@ -104,7 +215,18 @@ def _truncate_vector(
         rank:    число сохраняемых элементов
         backend: интерфейс backend
     """
-    pass
+    if vector.ndim != 1:
+        raise ValueError("vector must be 1-dimensional")
+
+    if rank < 1 or rank > vector.shape[0]:
+        raise ValueError("wrong rank")
+
+    result = backend.zeros((rank,))
+
+    for i in range(rank):
+        result[(i,)] = vector[(i,)]
+
+    return result
 
 
 def _multiply_diag_matrix(
@@ -123,7 +245,23 @@ def _multiply_diag_matrix(
         rank:     длина диагонального вектора
         backend:  интерфейс backend
     """
-    pass
+    if diag_vec.ndim != 1:
+        raise ValueError("diag_vec must be vector")
+
+    if matrix.ndim != 2:
+        raise ValueError("matrix must be 2-dimensional")
+
+    if diag_vec.shape[0] != rank or matrix.shape[0] != rank:
+        raise ValueError("wrong shapes")
+
+    cols = matrix.shape[1]
+    result = backend.zeros((rank, cols))
+
+    for i in range(rank):
+        for j in range(cols):
+            result[(i, j)] = diag_vec[(i,)] * matrix[(i, j)]
+
+    return result
 
 
 def _multiply_columns_by_diag(
@@ -140,4 +278,21 @@ def _multiply_columns_by_diag(
         diag_vec: одномерный тензор формы (rank,), содержащий диагональные элементы
         backend:  интерфейс backend
     """
-    pass
+    if matrix.ndim != 2:
+        raise ValueError("matrix must be 2-dimensional")
+
+    if diag_vec.ndim != 1:
+        raise ValueError("diag_vec must be vector")
+
+    rows, cols = matrix.shape
+
+    if cols != diag_vec.shape[0]:
+        raise ValueError("wrong shapes")
+
+    result = backend.zeros((rows, cols))
+
+    for i in range(rows):
+        for j in range(cols):
+            result[(i, j)] = matrix[(i, j)] * diag_vec[(j,)]
+
+    return result

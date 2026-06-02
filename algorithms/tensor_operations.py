@@ -39,7 +39,54 @@ def tt_add(
         tt1, tt2: TTTensor с одинаковым shape
         backend:  интерфейс backend
     """
-    pass
+    if tt1.shape != tt2.shape:
+        raise ValueError("TT tensors must have same shape")
+
+    cores = []
+    d = tt1.order
+
+    for k in range(d):
+        core1 = tt1.cores[k]
+        core2 = tt2.cores[k]
+
+        r1_left, n, r1_right = core1.shape
+        r2_left, _, r2_right = core2.shape
+
+        if k == 0:
+            new_core = backend.zeros((1, n, r1_right + r2_right))
+
+            for i in range(n):
+                for a in range(r1_right):
+                    new_core[(0, i, a)] = core1[(0, i, a)]
+
+                for b in range(r2_right):
+                    new_core[(0, i, r1_right + b)] = core2[(0, i, b)]
+
+        elif k == d - 1:
+            new_core = backend.zeros((r1_left + r2_left, n, 1))
+
+            for i in range(n):
+                for a in range(r1_left):
+                    new_core[(a, i, 0)] = core1[(a, i, 0)]
+
+                for b in range(r2_left):
+                    new_core[(r1_left + b, i, 0)] = core2[(b, i, 0)]
+
+        else:
+            new_core = backend.zeros((r1_left + r2_left, n, r1_right + r2_right))
+
+            for i in range(n):
+                for a in range(r1_left):
+                    for b in range(r1_right):
+                        new_core[(a, i, b)] = core1[(a, i, b)]
+
+                for a in range(r2_left):
+                    for b in range(r2_right):
+                        new_core[(r1_left + a, i, r1_right + b)] = core2[(a, i, b)]
+
+        cores.append(new_core)
+
+    return TTTensor(cores)
 
 
 def tt_scalar_mul(
@@ -56,7 +103,13 @@ def tt_scalar_mul(
         alpha:   число
         backend: интерфейс backend
     """
-    pass
+    if not isinstance(alpha, (int, float)):
+        raise TypeError("alpha must be number")
+
+    cores = [core.copy() for core in tt.cores]
+    cores[0] = backend.scale(cores[0], alpha)
+
+    return TTTensor(cores)
 
 
 def tt_hadamard(
@@ -71,7 +124,34 @@ def tt_hadamard(
         tt1, tt2: TTTensor с одинаковым shape
         backend:  интерфейс backend
     """
-    pass
+    if tt1.shape != tt2.shape:
+        raise ValueError("TT tensors must have same shape")
+
+    cores = []
+
+    for k in range(tt1.order):
+        core1 = tt1.cores[k]
+        core2 = tt2.cores[k]
+
+        r1_left, n, r1_right = core1.shape
+        r2_left, _, r2_right = core2.shape
+
+        new_core = backend.zeros((r1_left * r2_left, n, r1_right * r2_right))
+
+        for i in range(n):
+            for a1 in range(r1_left):
+                for a2 in range(r2_left):
+                    left = a1 * r2_left + a2
+
+                    for b1 in range(r1_right):
+                        for b2 in range(r2_right):
+                            right = b1 * r2_right + b2
+                            value = core1[(a1, i, b1)] * core2[(a2, i, b2)]
+                            new_core[(left, i, right)] = value
+
+        cores.append(new_core)
+
+    return TTTensor(cores)
 
 
 def tt_dot(
@@ -86,7 +166,36 @@ def tt_dot(
         tt1, tt2: TTTensor с одинаковым shape
         backend:  интерфейс backend
     """
-    pass
+    if tt1.shape != tt2.shape:
+        raise ValueError("TT tensors must have same shape")
+
+    z = backend.ones((1, 1))
+
+    for k in range(tt1.order):
+        core1 = tt1.cores[k]
+        core2 = tt2.cores[k]
+
+        r1_left, n, r1_right = core1.shape
+        r2_left, _, r2_right = core2.shape
+
+        new_z = backend.zeros((r1_right, r2_right))
+
+        for i in range(n):
+            for a1 in range(r1_left):
+                for a2 in range(r2_left):
+                    z_value = z[(a1, a2)]
+
+                    for b1 in range(r1_right):
+                        for b2 in range(r2_right):
+                            new_z[(b1, b2)] += (
+                                core1[(a1, i, b1)]
+                                * z_value
+                                * core2[(a2, i, b2)]
+                            )
+
+        z = new_z
+
+    return z[(0, 0)]
 
 
 def tt_norm(
@@ -100,7 +209,12 @@ def tt_norm(
         tt:      TTTensor
         backend: интерфейс backend
     """
-    pass
+    value = tt_dot(tt, tt, backend)
+
+    if value < 0 and abs(value) < 1e-10:
+        value = 0.0
+
+    return math.sqrt(value)
 
 
 def tt_diff_norm(
@@ -116,4 +230,5 @@ def tt_diff_norm(
         tt1, tt2: TTTensor
         backend:  интерфейс backend
     """
-    pass
+    diff = tt_add(tt1, tt_scalar_mul(tt2, -1, backend), backend)
+    return tt_norm(diff, backend)
