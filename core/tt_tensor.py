@@ -189,6 +189,10 @@ class TTTensor:
 
         return result
 
+    def to_dense(self) -> DenseTensor:
+        """Возвращает полный DenseTensor из его TT-формата."""
+        return self.full()
+
     # ────────────────────────────────────────────
     # Информация и отладка
     # ────────────────────────────────────────────

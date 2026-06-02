@@ -125,13 +125,12 @@ def _compute_truncated_rank(
 
     if delta > 0:
         tail_sum = 0.0
-        rank = numerical_rank
 
-        while rank > 1:
-            tail_sum += S[rank - 1] * S[rank - 1]
+        for i in range(numerical_rank - 1, 0, -1):
+            tail_sum += S[i] * S[i]
 
             if tail_sum <= delta * delta:
-                rank -= 1
+                rank = i
             else:
                 break
 

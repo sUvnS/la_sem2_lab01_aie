@@ -319,8 +319,8 @@ class DenseTensor:
         Args:
             other: t2
         """
-        if not isinstance(other, DenseTensor):
-            raise TypeError("other must be DenseTensor")
+        if not hasattr(other, "shape") or not hasattr(other, "data"):
+            raise TypeError("other must have shape and data")
 
         check_shapes_match(self.shape, other.shape)
 
@@ -337,8 +337,8 @@ class DenseTensor:
         Args:
             other: t2
         """
-        if not isinstance(other, DenseTensor):
-            raise TypeError("other must be DenseTensor")
+        if not hasattr(other, "shape") or not hasattr(other, "data"):
+            raise TypeError("other must have shape and data")
 
         check_shapes_match(self.shape, other.shape)
 
@@ -400,7 +400,7 @@ class DenseTensor:
             atol:  абсолютная погрешность (по умолчанию 1e-8)
             rtol:  относительная погрешность (по умолчанию 1e-5)
         """
-        if not isinstance(other, DenseTensor):
+        if not hasattr(other, "shape") or not hasattr(other, "data"):
             return False
 
         if self.shape != other.shape:

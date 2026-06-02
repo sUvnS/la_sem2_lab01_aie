@@ -109,7 +109,7 @@ def _right_orthogonalize_for_round(
 
         U, S, Vt = _safe_svd(matrix, backend)
 
-        rank = _compute_rank(S, 0.0, None)
+        rank = S.shape[0]
 
         U_trunc = _truncate_columns(U, rank, backend)
         S_trunc = _truncate_vector(S, rank, backend)
@@ -218,13 +218,12 @@ def _compute_rank(
 
     if delta > 0:
         tail_sum = 0.0
-        rank = numerical_rank
 
-        while rank > 1:
-            tail_sum += S[rank - 1] * S[rank - 1]
+        for i in range(numerical_rank - 1, 0, -1):
+            tail_sum += S[i] * S[i]
 
             if tail_sum <= delta * delta:
-                rank -= 1
+                rank = i
             else:
                 break
 
