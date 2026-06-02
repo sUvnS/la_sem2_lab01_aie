@@ -118,7 +118,7 @@ class DenseTensor:
         return DenseTensor(shape, data)
 
     @staticmethod
-    def from_nested_list(nested: list) -> DenseTensor:
+    def from_nested_list(nested: list | tuple) -> DenseTensor:
         """
         Создаёт тензор из вложенного списка Python.
         Автоматически определяет shape.
@@ -127,7 +127,7 @@ class DenseTensor:
             nested: список
         """
         def get_shape(obj):
-            if not isinstance(obj, list):
+            if not isinstance(obj, (list, tuple)):
                 return ()
 
             if len(obj) == 0:
@@ -141,7 +141,7 @@ class DenseTensor:
             return (len(obj),) + first_shape
 
         def flatten(obj):
-            if not isinstance(obj, list):
+            if not isinstance(obj, (list, tuple)):
                 return [float(obj)]
 
             result = []

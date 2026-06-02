@@ -65,18 +65,16 @@ def right_canonicalize(tt: TTTensor, backend: BackendInterface) -> TTTensor:
         r_left, n, r_right = core.shape
 
         matrix = backend.reshape(core, (r_left, n * r_right))
+        matrix_t = _transpose_matrix(matrix, backend)
 
-        U, S, Vt = backend.svd(matrix, full_matrices=False)
+        Q_t, R_t = backend.qr(matrix_t)
 
-        rank = _numerical_rank(S)
+        rank = Q_t.shape[1]
 
-        U_trunc = _truncate_columns(U, rank, backend)
-        S_trunc = _truncate_vector(S, rank, backend)
-        Vt_trunc = _truncate_rows(Vt, rank, backend)
+        Q = _transpose_matrix(Q_t, backend)
+        R = _transpose_matrix(R_t, backend)
 
-        cores[k] = backend.reshape(Vt_trunc, (rank, n, r_right))
-
-        left_part = _multiply_columns_by_diag(U_trunc, S_trunc, backend)
+        cores[k] = backend.reshape(Q, (rank, n, r_right))
 
         prev_core = cores[k - 1]
         prev_r_left, prev_n, _ = prev_core.shape
@@ -89,7 +87,7 @@ def right_canonicalize(tt: TTTensor, backend: BackendInterface) -> TTTensor:
                     value = 0.0
 
                     for c in range(r_left):
-                        value += prev_core[(a, i, c)] * left_part[(c, b)]
+                        value += prev_core[(a, i, c)] * R[(c, b)]
 
                     new_prev_core[(a, i, b)] = value
 
@@ -97,6 +95,22 @@ def right_canonicalize(tt: TTTensor, backend: BackendInterface) -> TTTensor:
 
     return TTTensor(cores)
 
+def _transpose_matrix(
+    matrix: DenseTensor,
+    backend: BackendInterface
+) -> DenseTensor:
+    """Возвращает транспонированную матрицу."""
+    if matrix.ndim != 2:
+        raise ValueError("matrix must be 2-dimensional")
+
+    rows, cols = matrix.shape
+    result = backend.zeros((cols, rows))
+
+    for i in range(rows):
+        for j in range(cols):
+            result[(j, i)] = matrix[(i, j)]
+
+    return result
 
 # ════════════════════════════════════════════════
 # Вспомогательные функции

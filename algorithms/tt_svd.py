@@ -26,8 +26,8 @@ def tt_svd(
         max_rank: максимальный TT-ранг (None = без ограничения)
         eps:      относительная точность усечения
     """
-    if not isinstance(tensor, DenseTensor):
-        raise TypeError("tensor must be DenseTensor")
+    if not hasattr(tensor, "shape") or not hasattr(tensor, "ndim") or not hasattr(tensor, "data"):
+        raise TypeError("tensor must have shape, ndim and data")
 
     if max_rank is not None:
         if not isinstance(max_rank, int) or max_rank <= 0:
