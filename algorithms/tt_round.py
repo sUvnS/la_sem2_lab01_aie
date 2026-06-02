@@ -37,7 +37,7 @@ def tt_round(
     if tt.order == 1:
         return tt.copy()
 
-    rounded = right_canonicalize(tt, backend)
+    rounded = _right_orthogonalize_for_round(tt, backend)
     cores = [core.copy() for core in rounded.cores]
 
     first_norm = backend.norm(cores[0])
@@ -53,7 +53,7 @@ def tt_round(
 
         matrix = backend.reshape(core, (r_left * n, r_right))
 
-        U, S, Vt = backend.svd(matrix, full_matrices=False)
+        U, S, Vt = _safe_svd(matrix, backend)
 
         rank = _compute_rank(S, delta, max_rank)
 
@@ -88,6 +88,99 @@ def tt_round(
 # ════════════════════════════════════════════════
 # Вспомогательные функции
 # ════════════════════════════════════════════════
+
+def _right_orthogonalize_for_round(
+    tt: TTTensor,
+    backend: BackendInterface
+) -> TTTensor:
+    """
+    Внутренняя правая ортогонализация для TT-round.
+
+    Здесь используется SVD, а не QR, чтобы не падать на широких матрицах
+    после tt_add и tt_hadamard.
+    """
+    cores = [core.copy() for core in tt.cores]
+
+    for k in range(tt.order - 1, 0, -1):
+        core = cores[k]
+        r_left, n, r_right = core.shape
+
+        matrix = backend.reshape(core, (r_left, n * r_right))
+
+        U, S, Vt = _safe_svd(matrix, backend)
+
+        rank = _compute_rank(S, 0.0, None)
+
+        U_trunc = _truncate_columns(U, rank, backend)
+        S_trunc = _truncate_vector(S, rank, backend)
+        Vt_trunc = _truncate_rows(Vt, rank, backend)
+
+        cores[k] = backend.reshape(Vt_trunc, (rank, n, r_right))
+
+        left_part = _multiply_columns_by_diag(U_trunc, S_trunc, backend)
+
+        prev_core = cores[k - 1]
+        prev_r_left, prev_n, _ = prev_core.shape
+
+        new_prev_core = backend.zeros((prev_r_left, prev_n, rank))
+
+        for a in range(prev_r_left):
+            for i in range(prev_n):
+                for b in range(rank):
+                    value = 0.0
+
+                    for c in range(r_left):
+                        value += prev_core[(a, i, c)] * left_part[(c, b)]
+
+                    new_prev_core[(a, i, b)] = value
+
+        cores[k - 1] = new_prev_core
+
+    return TTTensor(cores)
+
+
+def _safe_svd(
+    matrix: DenseTensor,
+    backend: BackendInterface
+) -> tuple[DenseTensor, DenseTensor, DenseTensor]:
+    """
+    SVD для любых матриц.
+    Если матрица широкая, делаем SVD транспонированной матрицы.
+    """
+    if matrix.ndim != 2:
+        raise ValueError("matrix must be 2-dimensional")
+
+    rows, cols = matrix.shape
+
+    if rows >= cols:
+        return backend.svd(matrix, full_matrices=False)
+
+    matrix_t = _transpose_matrix(matrix, backend)
+    U_t, S, Vt_t = backend.svd(matrix_t, full_matrices=False)
+
+    U = _transpose_matrix(Vt_t, backend)
+    Vt = _transpose_matrix(U_t, backend)
+
+    return U, S, Vt
+
+
+def _transpose_matrix(
+    matrix: DenseTensor,
+    backend: BackendInterface
+) -> DenseTensor:
+    """Возвращает транспонированную матрицу."""
+    if matrix.ndim != 2:
+        raise ValueError("matrix must be 2-dimensional")
+
+    rows, cols = matrix.shape
+    result = backend.zeros((cols, rows))
+
+    for i in range(rows):
+        for j in range(cols):
+            result[(j, i)] = matrix[(i, j)]
+
+    return result
+
 
 def _compute_rank(
     S: DenseTensor,
@@ -259,5 +352,34 @@ def _multiply_diag_matrix(
     for i in range(rank):
         for j in range(cols):
             result[(i, j)] = diag_vec[(i,)] * matrix[(i, j)]
+
+    return result
+
+
+def _multiply_columns_by_diag(
+    matrix: DenseTensor,
+    diag_vec: DenseTensor,
+    backend: BackendInterface
+) -> DenseTensor:
+    """
+    Возвращает результат произведения обычной матрицы на диагональную:
+        matrix @ diag(diag_vec)
+    """
+    if matrix.ndim != 2:
+        raise ValueError("matrix must be 2-dimensional")
+
+    if diag_vec.ndim != 1:
+        raise ValueError("diag_vec must be vector")
+
+    rows, cols = matrix.shape
+
+    if cols != diag_vec.shape[0]:
+        raise ValueError("wrong shapes")
+
+    result = backend.zeros((rows, cols))
+
+    for i in range(rows):
+        for j in range(cols):
+            result[(i, j)] = matrix[(i, j)] * diag_vec[(j,)]
 
     return result

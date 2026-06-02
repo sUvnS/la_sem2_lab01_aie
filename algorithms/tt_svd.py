@@ -36,14 +36,15 @@ def tt_svd(
     if eps < 0:
         raise ValueError("eps must be non-negative")
 
-    shape = tensor.shape
+    shape = tuple(tensor.shape)
     d = tensor.ndim
+    dense_tensor = DenseTensor(shape, list(tensor.data))
 
     if d == 1:
-        core = backend.reshape(tensor, (1, shape[0], 1))
+        core = backend.reshape(dense_tensor, (1, shape[0], 1))
         return TTTensor([core])
 
-    tensor_norm = backend.norm(tensor)
+    tensor_norm = backend.norm(dense_tensor)
 
     if tensor_norm > 1e-30:
         delta = eps * tensor_norm / math.sqrt(d - 1)
@@ -51,7 +52,7 @@ def tt_svd(
         delta = 0.0
 
     cores = []
-    C = tensor.copy()
+    C = dense_tensor.copy()
     r_prev = 1
 
     for k in range(d - 1):
